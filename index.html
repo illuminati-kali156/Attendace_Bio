@@ -10,7 +10,6 @@
     <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.min.js"></script>
 
     <style>
-        /* Mobile-optimized smooth scrolling and hiding scrollbars */
         .hide-scrollbar::-webkit-scrollbar { display: none; }
         .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
         
@@ -32,20 +31,18 @@
         .slide-up { animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
         @keyframes slideUp { 0% { transform: translateY(100px); opacity: 0; } 100% { transform: translateY(0); opacity: 1; } }
         
-        /* Prevent body scroll bounce on mobile */
         body { overscroll-behavior-y: none; }
     </style>
 </head>
 <body class="bg-slate-50 min-h-screen text-slate-800 font-sans selection:bg-blue-200 flex flex-col">
 
-    <!-- Mobile-Optimized Top Navigation -->
+    <!-- Top Navigation -->
     <nav class="bg-white shadow-sm border-b border-slate-200 sticky top-0 z-50">
         <div class="px-4 py-3 flex items-center gap-3">
             <div class="h-8 w-8 bg-gradient-to-br from-blue-600 to-blue-800 rounded-lg flex items-center justify-center text-white font-bold text-lg shadow-md">AI</div>
             <h1 class="text-lg font-bold tracking-tight text-slate-800">Kiosk</h1>
         </div>
         
-        <!-- Swipeable Tab Menu -->
         <div class="flex overflow-x-auto hide-scrollbar px-2 bg-slate-50/50">
             <button onclick="switchTab('terminal')" id="btn-terminal" class="px-4 py-3 text-sm font-bold text-blue-600 border-b-[3px] border-blue-600 whitespace-nowrap transition-colors">📱 Terminal</button>
             <button onclick="switchTab('register')" id="btn-register" class="px-4 py-3 text-sm font-semibold text-slate-500 hover:text-slate-800 border-b-[3px] border-transparent whitespace-nowrap transition-colors">👤 Enroll</button>
@@ -58,7 +55,6 @@
         <!-- TAB 1: LIVE TERMINAL -->
         <div id="tab-terminal" class="tab-content w-full mx-auto">
             <div class="glass-panel rounded-2xl overflow-hidden flex flex-col relative">
-                
                 <div class="bg-slate-900 text-white px-4 py-3 flex justify-between items-center z-20">
                     <div class="flex-1">
                         <h2 class="text-base font-bold flex items-center gap-2">Scanner</h2>
@@ -67,9 +63,7 @@
                     <div id="pulse-indicator" class="h-2.5 w-2.5 bg-slate-500 rounded-full flex-shrink-0"></div>
                 </div>
 
-                <!-- Responsive Video Container -->
                 <div class="relative bg-black w-full aspect-[3/4] sm:aspect-video flex items-center justify-center overflow-hidden">
-                    <!-- webkit-playsinline is crucial for iOS -->
                     <video id="live-video" class="mirror-feed absolute inset-0 w-full h-full" autoplay muted playsinline webkit-playsinline></video>
                     
                     <div id="scanner-fx" class="hidden absolute inset-0">
@@ -89,7 +83,6 @@
                 </div>
             </div>
 
-            <!-- Mobile Notification Pop-up -->
             <div id="ack-notification" class="fixed bottom-4 left-4 right-4 hidden z-50 slide-up">
                 <div id="ack-card" class="bg-white rounded-2xl shadow-[0_10px_40px_rgba(0,0,0,0.2)] p-4 flex items-center gap-4 border-l-8 border-green-500">
                     <div id="ack-icon" class="text-3xl">👋</div>
@@ -109,14 +102,14 @@
                 <p class="text-xs text-slate-500 mb-6">Device must be at eye level.</p>
                 
                 <div class="flex flex-col gap-6">
-                    <div class="relative rounded-2xl overflow-hidden bg-black aspect-square border-4 border-slate-100 shadow-inner w-full max-w-[300px] mx-auto">
+                    <div class="relative rounded-2xl overflow-hidden bg-black aspect-square border-4 border-slate-100 shadow-inner w-full max-w-[300px] mx-auto flex flex-col justify-end">
                         <video id="reg-video" class="mirror-feed absolute inset-0 w-full h-full z-0" autoplay muted playsinline webkit-playsinline></video>
                         
                         <div class="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
                             <div id="face-guide" class="w-32 h-40 border-2 border-dashed border-white/70 rounded-[40%] transition-colors duration-300"></div>
                         </div>
 
-                        <div class="absolute bottom-0 z-20 bg-gradient-to-t from-black/80 to-transparent p-4 w-full text-center">
+                        <div class="relative z-20 bg-gradient-to-t from-black/80 to-transparent p-4 w-full text-center pb-6">
                             <h3 id="reg-instruction" class="text-white font-bold text-sm drop-shadow-md mb-2">Awaiting Name...</h3>
                             <div class="w-full bg-slate-700/50 rounded-full h-1.5 overflow-hidden">
                                 <div id="reg-progress" class="bg-blue-500 h-1.5 rounded-full w-0 transition-all duration-500"></div>
@@ -127,7 +120,7 @@
                     <div class="flex flex-col gap-4">
                         <div>
                             <input type="text" id="reg-name" placeholder="Employee Full Name" class="w-full px-4 py-3.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 outline-none text-base font-medium">
-                            <p id="reg-update-badge" class="hidden mt-2 text-xs font-bold text-orange-600 bg-orange-100 py-1 px-2 rounded-md inline-block">🔄 Update Mode</p>
+                            <p id="reg-update-badge" class="hidden mt-2 text-xs font-bold text-orange-600 bg-orange-100 py-1 px-2 rounded-md inline-block">🔄 Update Mode Active</p>
                         </div>
                         
                         <button id="btn-start-enroll" onclick="startEnrollmentSequence()" class="w-full bg-slate-900 active:bg-black text-white font-bold py-4 rounded-xl shadow-lg transition-transform active:scale-95 flex justify-center items-center gap-2 text-base">
@@ -142,9 +135,8 @@
 
         <!-- TAB 3: ADMIN HUB -->
         <div id="tab-admin" class="tab-content hidden w-full mx-auto space-y-6">
-            
             <div class="glass-panel p-4 rounded-2xl flex flex-col gap-4">
-                <button id="toggle-scan-btn" onclick="toggleAttendance()" class="w-full bg-orange-500 text-white px-4 py-3.5 rounded-xl font-bold shadow-sm active:scale-95 flex justify-center gap-2 items-center">
+                <button id="toggle-scan-btn" onclick="toggleAttendance()" class="w-full bg-orange-500 text-white px-4 py-3.5 rounded-xl font-bold shadow-sm active:scale-95 flex justify-center gap-2 items-center transition-colors">
                     ⏸ Pause Terminal
                 </button>
                 
@@ -250,12 +242,12 @@
             
             if (isAttendanceActive) {
                 btn.innerHTML = "⏸ Pause Terminal";
-                btn.className = "w-full bg-orange-500 text-white px-4 py-3.5 rounded-xl font-bold shadow-sm active:scale-95 flex justify-center gap-2 items-center";
+                btn.className = "w-full bg-orange-500 text-white px-4 py-3.5 rounded-xl font-bold shadow-sm active:scale-95 flex justify-center gap-2 items-center transition-colors";
                 document.getElementById('paused-overlay').classList.add('hidden');
                 if(activeTab === 'terminal') startWarmupTimer();
             } else {
                 btn.innerHTML = "▶ Resume Terminal";
-                btn.className = "w-full bg-green-500 text-white px-4 py-3.5 rounded-xl font-bold shadow-sm active:scale-95 flex justify-center gap-2 items-center";
+                btn.className = "w-full bg-green-500 text-white px-4 py-3.5 rounded-xl font-bold shadow-sm active:scale-95 flex justify-center gap-2 items-center transition-colors";
                 document.getElementById('paused-overlay').classList.remove('hidden');
                 document.getElementById('scanner-fx').classList.add('hidden');
                 document.getElementById('warmup-overlay').classList.add('hidden'); 
@@ -263,7 +255,6 @@
             }
         }
 
-        // IMPROVED CAMERA & ERROR CATCHING FOR MOBILE
         async function bootSystem() {
             try {
                 statusText.innerText = "Downloading AI (Takes 10-20s)...";
@@ -273,14 +264,12 @@
                 
                 statusText.innerText = "Requesting Camera...";
                 
-                // Fallback constraints for strict mobile browsers
                 const constraints = { video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }, audio: false };
                 let stream;
                 
                 try {
                     stream = await navigator.mediaDevices.getUserMedia(constraints);
                 } catch (camErr) {
-                    // Fallback if 'facingMode' is rejected by older Androids
                     stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
                 }
                 
@@ -351,7 +340,7 @@
                 document.getElementById('ack-notification').classList.add('hidden');
                 if(activeTab === 'terminal' && isAttendanceActive) document.getElementById('scanner-fx').classList.remove('hidden');
                 scanCooldown = false;
-            }, 8000); // Reduced to 8s for faster mobile flow
+            }, 8000); 
         }
 
         function displayAckCard(name, type, timeObj) {
@@ -401,6 +390,7 @@
             }
         }
 
+        // UPGRADED ENROLLMENT LOOP: Smart Retries
         async function startEnrollmentSequence() {
             if(!isAIReady) return alert("AI Engine still loading.");
             if(isEnrolling) return;
@@ -429,9 +419,9 @@
             let capturedDescriptors = [];
             
             const captureSteps = [
-                { msg: "Look straight", color: "border-blue-400", p: "33%" },
-                { msg: "Turn slightly Left", color: "border-purple-400", p: "66%" },
-                { msg: "Turn slightly Right", color: "border-green-400", p: "100%" }
+                { msg: "Look straight ahead", color: "border-blue-400", p: "33%" },
+                { msg: "Turn slightly Left (20°)", color: "border-purple-400", p: "66%" },
+                { msg: "Turn slightly Right (20°)", color: "border-green-400", p: "100%" }
             ];
 
             try {
@@ -441,10 +431,23 @@
                     instruction.innerText = step.msg;
                     guideBox.className = `w-32 h-40 border-2 border-dashed rounded-[40%] transition-colors duration-300 ${step.color}`;
                     
-                    await delay(1500);
-                    const detection = await faceapi.detectSingleFace(regVideo).withFaceLandmarks().withFaceDescriptor();
+                    // Give user 1 second to start turning
+                    await delay(1000); 
                     
-                    if (!detection) return abortEnrollment("Face lost! Stay in frame.");
+                    let detection = null;
+                    let attempts = 0;
+
+                    // SMART RETRY LOOP: 15 attempts (approx 3 seconds)
+                    while (!detection && attempts < 15 && isEnrolling) {
+                        detection = await faceapi.detectSingleFace(regVideo).withFaceLandmarks().withFaceDescriptor();
+                        if (!detection) {
+                            attempts++;
+                            instruction.innerText = `Searching... (Keep looking ${i===0?'straight':i===1?'left':'right'})`;
+                            await delay(200); 
+                        }
+                    }
+                    
+                    if (!detection) return abortEnrollment("Face lost! Check lighting and stay in frame.");
 
                     if (i === 0 && faceMatcher) {
                         const match = faceMatcher.findBestMatch(detection.descriptor);
@@ -453,8 +456,11 @@
                         }
                     }
 
+                    instruction.innerText = "Got it!";
                     capturedDescriptors.push(Array.from(detection.descriptor));
                     progress.style.width = step.p;
+                    
+                    await delay(500); 
                 }
 
                 await db.users.put({ name: name, descriptors: capturedDescriptors });
@@ -528,7 +534,6 @@
                 return;
             }
 
-            // Only show today's logs on the admin screen for speed on mobile
             const todayStr = new Date().toLocaleDateString();
             const todayLogs = allLogs.filter(log => new Date(log.timestamp).toLocaleDateString() === todayStr);
 
