@@ -1,0 +1,720 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#f8fafc">
+    <title>AI Kiosk Enterprise</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/dexie@3.2.4/dist/dexie.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.min.js"></script>
+
+    <style>
+        body { overscroll-behavior-y: none; -webkit-tap-highlight-color: transparent; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+        .hide-scrollbar::-webkit-scrollbar { display: none; }
+        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        .app-shadow { box-shadow: 0 10px 40px rgba(0,0,0,0.08); }
+        .glass-nav { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(20px); border-top: 1px solid rgba(226, 232, 240, 0.8); }
+        
+        .mirror-feed { transform: scaleX(-1); object-fit: cover; }
+        
+        .scanner-bar {
+            position: absolute; top: 0; left: 0; right: 0; height: 15px;
+            background: linear-gradient(to bottom, rgba(59,130,246,0) 0%, rgba(59,130,246,0.9) 100%);
+            box-shadow: 0px 4px 25px rgba(59,130,246,0.8);
+            animation: scan 1.8s cubic-bezier(0.4, 0, 0.2, 1) infinite alternate; z-index: 10;
+        }
+        @keyframes scan { 0% { transform: translateY(0); } 100% { transform: translateY(100%); } }
+        
+        .slide-up { animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+        @keyframes slideUp { 0% { transform: translateY(120px); opacity: 0; } 100% { transform: translateY(0); opacity: 1; } }
+        
+        .fade-in { animation: fadeIn 0.3s ease-out forwards; }
+        @keyframes fadeIn { 0% { opacity: 0; } 100% { opacity: 1; } }
+
+        /* Admin Log Card Accents */
+        .log-card { border-left: 5px solid #3b82f6; }
+        .log-card.in { border-left-color: #10b981; }
+        .log-card.out { border-left-color: #f97316; }
+    </style>
+</head>
+<body class="bg-slate-50 min-h-screen text-slate-800 flex flex-col pb-24 pt-safe selection:bg-blue-200">
+
+    <!-- Premium App Header -->
+    <header class="bg-white/90 backdrop-blur-xl sticky top-0 z-40 px-5 py-4 flex justify-between items-center app-shadow rounded-b-[2rem] mb-5">
+        <div class="flex items-center gap-3.5">
+            <div class="h-11 w-11 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-[14px] flex items-center justify-center text-white font-black text-xl shadow-lg shadow-blue-500/30 ring-2 ring-white">AI</div>
+            <div>
+                <h1 class="text-[19px] font-black tracking-tight leading-tight text-slate-900">Smart Kiosk</h1>
+                <div class="flex items-center gap-1.5 mt-0.5">
+                    <div id="pulse-indicator" class="h-2 w-2 bg-slate-300 rounded-full"></div>
+                    <p id="ai-status" class="text-[11px] font-bold text-slate-400 uppercase tracking-widest">System Booting</p>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="flex-1 w-full max-w-lg mx-auto px-4 relative">
+
+        <!-- TAB 1: LIVE TERMINAL -->
+        <div id="tab-terminal" class="tab-content w-full flex flex-col items-center fade-in">
+            
+            <div class="w-full bg-white p-2.5 rounded-[2.5rem] app-shadow relative overflow-hidden ring-1 ring-slate-100">
+                
+                <div class="relative bg-slate-900 w-full aspect-[3/4] rounded-[2rem] flex items-center justify-center overflow-hidden shadow-inner">
+                    <video id="live-video" class="mirror-feed absolute inset-0 w-full h-full" autoplay muted playsinline webkit-playsinline></video>
+                    
+                    <!-- Scanner FX -->
+                    <div id="scanner-fx" class="hidden absolute inset-0 pointer-events-none">
+                        <div class="scanner-bar"></div>
+                        <div class="absolute inset-4 border-[3px] border-blue-500/20 rounded-3xl"></div>
+                        
+                        <!-- Face Target Box -->
+                        <div class="absolute inset-0 flex items-center justify-center">
+                            <div class="w-52 h-64 border border-white/20 rounded-[2rem]">
+                                <div class="absolute top-0 left-0 w-8 h-8 border-t-[5px] border-l-[5px] border-blue-500 rounded-tl-[2rem]"></div>
+                                <div class="absolute top-0 right-0 w-8 h-8 border-t-[5px] border-r-[5px] border-blue-500 rounded-tr-[2rem]"></div>
+                                <div class="absolute bottom-0 left-0 w-8 h-8 border-b-[5px] border-l-[5px] border-blue-500 rounded-bl-[2rem]"></div>
+                                <div class="absolute bottom-0 right-0 w-8 h-8 border-b-[5px] border-r-[5px] border-blue-500 rounded-br-[2rem]"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Paused Overlay -->
+                    <div id="paused-overlay" class="absolute inset-0 bg-slate-900/80 hidden flex flex-col items-center justify-center text-white z-20 backdrop-blur-md">
+                        <div class="bg-orange-500 w-16 h-16 rounded-full flex items-center justify-center mb-4 shadow-lg shadow-orange-500/40">
+                            <span class="text-3xl">⏸</span>
+                        </div>
+                        <h3 class="text-xl font-black tracking-wide">Terminal Paused</h3>
+                    </div>
+
+                    <!-- Warmup Overlay -->
+                    <div id="warmup-overlay" class="absolute inset-0 bg-blue-900/85 hidden flex flex-col items-center justify-center text-white z-20 backdrop-blur-lg">
+                        <span class="text-5xl mb-5 animate-bounce drop-shadow-lg">🛡️</span>
+                        <h3 class="text-xl font-bold">Activating Scanner</h3>
+                        <div class="mt-3 bg-white/20 px-6 py-2 rounded-full border border-white/30">
+                            <p class="text-white font-mono text-3xl font-black" id="warmup-timer">3</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Toast Notification Pop-up -->
+            <div id="ack-notification" class="fixed top-[100px] left-4 right-4 hidden z-50 slide-up max-w-md mx-auto">
+                <div id="ack-card" class="bg-white rounded-[2rem] app-shadow p-6 flex items-center gap-5 border border-slate-100">
+                    <div id="ack-icon" class="text-5xl drop-shadow-md">✅</div>
+                    <div class="flex-1">
+                        <p id="ack-msg" class="text-[11px] font-black uppercase tracking-widest mb-1 text-slate-400"></p>
+                        <h3 id="ack-name" class="text-[22px] font-black text-slate-800 leading-none"></h3>
+                        <p id="ack-time" class="text-sm text-slate-500 font-bold mt-2 bg-slate-50 inline-block px-3 py-1 rounded-lg"></p>
+                    </div>
+                </div>
+            </div>
+            
+            <p class="text-center text-[11px] text-slate-400 font-bold mt-8 uppercase tracking-widest flex items-center justify-center gap-2">
+                <span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+                On-Device AI Engine
+            </p>
+        </div>
+
+        <!-- TAB 2: ENROLLMENT -->
+        <div id="tab-register" class="tab-content hidden w-full fade-in">
+            <div class="bg-white p-7 rounded-[2.5rem] app-shadow ring-1 ring-slate-100">
+                <div class="mb-6">
+                    <h2 class="text-3xl font-black text-slate-800 tracking-tight">Add Employee</h2>
+                    <p class="text-sm text-slate-500 font-bold mt-1">Create a secure 3D face blueprint.</p>
+                </div>
+                
+                <div class="relative rounded-[2rem] overflow-hidden bg-black aspect-square border-4 border-slate-100 mb-6 flex flex-col justify-end shadow-inner">
+                    <video id="reg-video" class="mirror-feed absolute inset-0 w-full h-full z-0" autoplay muted playsinline webkit-playsinline></video>
+                    
+                    <div class="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
+                        <div id="face-guide" class="w-40 h-48 border-[3px] border-dashed border-white/80 rounded-[40%] transition-colors duration-300"></div>
+                    </div>
+
+                    <div class="relative z-20 bg-gradient-to-t from-black/90 via-black/40 to-transparent p-5 w-full text-center">
+                        <h3 id="reg-instruction" class="text-white font-bold text-[15px] tracking-wide mb-3 shadow-black drop-shadow-lg">Awaiting Name...</h3>
+                        <div class="w-full bg-slate-700 rounded-full h-2 overflow-hidden shadow-inner">
+                            <div id="reg-progress" class="bg-blue-500 h-full rounded-full w-0 transition-all duration-500 shadow-[0_0_15px_#3b82f6]"></div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="flex flex-col gap-4">
+                    <div class="relative">
+                        <input type="text" id="reg-name" placeholder="Full Legal Name" class="w-full px-5 py-4 rounded-2xl bg-slate-50 border border-slate-200 focus:ring-4 focus:ring-blue-100 focus:border-blue-500 outline-none text-lg font-bold placeholder:font-medium transition-all">
+                        <p id="reg-update-badge" class="hidden absolute -top-3 left-4 text-[10px] font-black text-white bg-orange-500 py-1 px-2.5 rounded-lg uppercase tracking-wider shadow-md">Update Mode Active</p>
+                    </div>
+                    
+                    <button id="btn-start-enroll" onclick="startEnrollmentSequence()" class="w-full bg-slate-900 active:bg-black text-white font-black py-4 rounded-2xl shadow-xl transition-transform active:scale-95 flex justify-center items-center gap-2 text-lg tracking-wide mt-2">
+                        📸 Start Mapping
+                    </button>
+                    
+                    <div id="reg-status-box" class="hidden p-3.5 rounded-xl text-sm font-bold text-center border mt-2"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 3: ADMIN HUB -->
+        <div id="tab-admin" class="tab-content hidden w-full space-y-5 fade-in">
+            
+            <!-- Admin Controls -->
+            <div class="bg-white p-6 rounded-[2.5rem] app-shadow ring-1 ring-slate-100 grid grid-cols-2 gap-3.5">
+                <button id="toggle-scan-btn" onclick="toggleAttendance()" class="col-span-2 bg-orange-500 text-white py-4 rounded-2xl font-black shadow-lg shadow-orange-500/30 active:scale-95 flex justify-center gap-2 items-center tracking-wide text-lg">
+                    ⏸ PAUSE SCANNER
+                </button>
+                
+                <button onclick="exportToCSV()" class="bg-slate-50 text-slate-800 py-4 rounded-2xl font-bold active:scale-95 flex flex-col items-center justify-center gap-1.5 border border-slate-200">
+                    <span class="text-2xl drop-shadow-sm">📊</span>
+                    <span class="text-[10px] uppercase tracking-widest font-black">Excel</span>
+                </button>
+                
+                <button onclick="exportToWhatsApp()" class="bg-[#25D366]/10 text-[#128C7E] py-4 rounded-2xl font-bold active:scale-95 flex flex-col items-center justify-center gap-1.5 border border-[#25D366]/30">
+                    <span class="text-2xl drop-shadow-sm">💬</span>
+                    <span class="text-[10px] uppercase tracking-widest font-black text-[#25D366]">WhatsApp</span>
+                </button>
+
+                <div class="col-span-2 mt-2">
+                    <input type="tel" id="manager-phone" placeholder="WhatsApp Number (e.g. 91...)" class="w-full px-5 py-4 rounded-2xl bg-slate-50 border border-slate-200 focus:ring-4 focus:ring-[#25D366]/20 focus:border-[#25D366] outline-none text-sm font-bold text-center transition-all">
+                </div>
+            </div>
+
+            <!-- Data Lists -->
+            <div class="bg-white rounded-[2.5rem] app-shadow overflow-hidden flex flex-col ring-1 ring-slate-100">
+                <div class="flex border-b border-slate-100 p-2 gap-2 bg-slate-50/50">
+                    <button onclick="switchAdminTab('logs')" id="adm-tab-logs" class="flex-1 py-3.5 rounded-2xl text-[13px] font-black text-blue-600 bg-white shadow-sm transition-all">TODAY'S LOGS</button>
+                    <button onclick="switchAdminTab('emp')" id="adm-tab-emp" class="flex-1 py-3.5 rounded-2xl text-[13px] font-bold text-slate-500 bg-transparent transition-all">DATABASE (<span id="emp-count">0</span>)</button>
+                </div>
+                
+                <div id="admin-view-logs" class="p-4 max-h-[420px] overflow-y-auto space-y-3 bg-slate-50/30"></div>
+                <div id="admin-view-emp" class="hidden p-4 max-h-[420px] overflow-y-auto space-y-3 bg-slate-50/30"></div>
+            </div>
+        </div>
+    </main>
+
+    <!-- App Bottom Navigation -->
+    <nav class="fixed bottom-0 left-0 right-0 glass-nav pb-safe z-50 rounded-t-[2rem]">
+        <div class="flex justify-around items-center px-4 py-3.5 max-w-lg mx-auto">
+            <button onclick="switchTab('terminal')" id="nav-terminal" class="flex flex-col items-center w-20 gap-1.5 text-blue-600 transition-colors">
+                <svg class="w-7 h-7 drop-shadow-sm" fill="currentColor" viewBox="0 0 20 20"><path d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z" clip-rule="evenodd" fill-rule="evenodd"></path></svg>
+                <span class="text-[10px] font-black uppercase tracking-widest">Scanner</span>
+            </button>
+            <button onclick="switchTab('register')" id="nav-register" class="flex flex-col items-center w-20 gap-1.5 text-slate-400 hover:text-slate-600 transition-colors">
+                <svg class="w-7 h-7" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd"></path></svg>
+                <span class="text-[10px] font-bold uppercase tracking-widest">Add</span>
+            </button>
+            <button onclick="switchTab('admin')" id="nav-admin" class="flex flex-col items-center w-20 gap-1.5 text-slate-400 hover:text-slate-600 transition-colors">
+                <svg class="w-7 h-7" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd"></path></svg>
+                <span class="text-[10px] font-bold uppercase tracking-widest">Admin</span>
+            </button>
+        </div>
+    </nav>
+
+    <!-- CORE JAVASCRIPT LOGIC -->
+    <script>
+        const db = new Dexie("SmartKioskEnterpriseDB");
+        db.version(2).stores({ users: 'name', logs: '++id, name, timestamp, type' });
+
+        const MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.12/model/';
+        let activeTab = 'terminal'; 
+        let faceMatcher = null, isAIReady = false, scanCooldown = false;
+        let isAttendanceActive = true, warmupInterval = null, isEnrolling = false;
+        
+        // BUG FIX 1: New Lock Variable to prevent "Continuous Scanning" race condition
+        let isDetecting = false; 
+        
+        const tinyFaceOptions = new faceapi.TinyFaceDetectorOptions({ inputSize: 160, scoreThreshold: 0.5 });
+
+        const liveVideo = document.getElementById('live-video');
+        const regVideo = document.getElementById('reg-video');
+        const statusText = document.getElementById('ai-status');
+        const pulse = document.getElementById('pulse-indicator');
+
+        function switchTab(tabId) {
+            if(isEnrolling) abortEnrollment("Cancelled by navigation.");
+            
+            // BUG FIX 2: Hard lock the scanner the millisecond we leave the Terminal tab
+            if (tabId !== 'terminal') {
+                scanCooldown = true; 
+                document.getElementById('scanner-fx').classList.add('hidden');
+            }
+
+            activeTab = tabId;
+            
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+            document.getElementById(`tab-${tabId}`).classList.remove('hidden');
+            
+            ['terminal', 'register', 'admin'].forEach(id => {
+                const btn = document.getElementById(`nav-${id}`);
+                btn.classList.remove('text-blue-600', 'font-black');
+                btn.classList.add('text-slate-400', 'font-bold');
+            });
+            const activeBtn = document.getElementById(`nav-${tabId}`);
+            activeBtn.classList.remove('text-slate-400', 'font-bold');
+            activeBtn.classList.add('text-blue-600', 'font-black');
+            
+            if (tabId === 'admin') { 
+                refreshLogsView(); 
+                refreshEmployeeView(); 
+            } else if (tabId === 'terminal' && isAIReady && isAttendanceActive) {
+                startWarmupTimer();
+            }
+        }
+
+        function switchAdminTab(viewId) {
+            document.getElementById('admin-view-logs').classList.add('hidden');
+            document.getElementById('admin-view-emp').classList.add('hidden');
+            
+            document.getElementById(`admin-view-${viewId}`).classList.remove('hidden');
+            
+            document.getElementById('adm-tab-logs').className = "flex-1 py-3.5 rounded-2xl text-[13px] font-bold text-slate-500 bg-transparent transition-all";
+            document.getElementById('adm-tab-emp').className = "flex-1 py-3.5 rounded-2xl text-[13px] font-bold text-slate-500 bg-transparent transition-all";
+            
+            const active = document.getElementById(`adm-tab-${viewId}`);
+            active.className = "flex-1 py-3.5 rounded-2xl text-[13px] font-black text-blue-600 bg-white shadow-sm transition-all";
+        }
+
+        function startWarmupTimer() {
+            scanCooldown = true; 
+            document.getElementById('scanner-fx').classList.add('hidden'); 
+            if(warmupInterval) clearInterval(warmupInterval);
+            
+            document.getElementById('warmup-overlay').classList.remove('hidden');
+            let timeLeft = 3; 
+            document.getElementById('warmup-timer').innerText = timeLeft;
+            
+            warmupInterval = setInterval(() => {
+                timeLeft--;
+                if (timeLeft > 0) {
+                    document.getElementById('warmup-timer').innerText = timeLeft;
+                } else {
+                    clearInterval(warmupInterval);
+                    document.getElementById('warmup-overlay').classList.add('hidden');
+                    
+                    // Only unlock scanner if we are still actually on the terminal tab
+                    if (activeTab === 'terminal' && isAttendanceActive) {
+                        document.getElementById('scanner-fx').classList.remove('hidden');
+                        scanCooldown = false; 
+                    }
+                }
+            }, 1000);
+        }
+
+        function toggleAttendance() {
+            isAttendanceActive = !isAttendanceActive;
+            const btn = document.getElementById('toggle-scan-btn');
+            
+            if (isAttendanceActive) {
+                btn.innerHTML = "⏸ PAUSE SCANNER";
+                btn.className = "col-span-2 bg-orange-500 text-white py-4 rounded-2xl font-black shadow-lg shadow-orange-500/30 active:scale-95 flex justify-center gap-2 items-center tracking-wide text-lg";
+                document.getElementById('paused-overlay').classList.add('hidden');
+                statusText.innerText = "System Active";
+                statusText.className = "text-[11px] font-bold text-green-500 uppercase tracking-widest";
+                if(activeTab === 'terminal') startWarmupTimer();
+            } else {
+                btn.innerHTML = "▶ RESUME SCANNER";
+                btn.className = "col-span-2 bg-green-500 text-white py-4 rounded-2xl font-black shadow-lg shadow-green-500/30 active:scale-95 flex justify-center gap-2 items-center tracking-wide text-lg";
+                document.getElementById('paused-overlay').classList.remove('hidden');
+                document.getElementById('scanner-fx').classList.add('hidden');
+                document.getElementById('warmup-overlay').classList.add('hidden'); 
+                statusText.innerText = "System Paused";
+                statusText.className = "text-[11px] font-bold text-orange-500 uppercase tracking-widest";
+                if(warmupInterval) clearInterval(warmupInterval);
+            }
+        }
+
+        async function bootSystem() {
+            try {
+                statusText.innerText = "Fetching Neural Net...";
+                await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+                await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
+                await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
+                
+                statusText.innerText = "Connecting Camera...";
+                
+                const constraints = { video: { facingMode: "user", width: { ideal: 320 }, height: { ideal: 240 } }, audio: false };
+                let stream;
+                try {
+                    stream = await navigator.mediaDevices.getUserMedia(constraints);
+                } catch (camErr) {
+                    stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                }
+                
+                liveVideo.srcObject = stream;
+                regVideo.srcObject = stream;
+                
+                liveVideo.onplay = async () => {
+                    statusText.innerText = "System Active";
+                    statusText.className = "text-[11px] font-bold text-green-500 uppercase tracking-widest";
+                    pulse.classList.replace('bg-slate-300', 'bg-green-500');
+                    pulse.classList.add('animate-ping');
+                    
+                    isAIReady = true;
+                    await rebuildFaceMatcher();
+                    if(isAttendanceActive) startWarmupTimer();
+                    startTerminalLoop();
+                };
+            } catch (e) {
+                console.error(e);
+                statusText.innerText = "Hardware Error";
+                statusText.className = "text-[11px] font-bold text-red-500 uppercase tracking-widest";
+                pulse.classList.replace('bg-slate-300', 'bg-red-500');
+            }
+        }
+
+        async function rebuildFaceMatcher() {
+            const allUsers = await db.users.toArray();
+            if (allUsers.length === 0) { faceMatcher = null; return; }
+            const labeledDescriptors = allUsers.map(user => {
+                const descList = user.descriptors ? user.descriptors : [user.descriptor];
+                return new faceapi.LabeledFaceDescriptors(user.name, descList.map(d => new Float32Array(d)));
+            });
+            faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.53);
+        }
+
+        // UPGRADED AI LOOP WITH LOCK (Fixes continuous punching bug)
+        async function startTerminalLoop() {
+            setInterval(async () => {
+                if (activeTab !== 'terminal' || !isAIReady || scanCooldown || isDetecting || !faceMatcher || liveVideo.paused || !isAttendanceActive) return;
+                
+                isDetecting = true; // Lock execution 
+                try {
+                    const detection = await faceapi.detectSingleFace(liveVideo, tinyFaceOptions).withFaceLandmarks().withFaceDescriptor();
+                    if (detection) {
+                        const match = faceMatcher.findBestMatch(detection.descriptor);
+                        if (match.label !== 'unknown') {
+                            if (!scanCooldown) await processAttendancePunch(match.label); // Double check cooldown
+                        }
+                    }
+                } catch (err) {
+                    console.error("Frame skip", err);
+                } finally {
+                    isDetecting = false; // Unlock execution
+                }
+            }, 800);
+        }
+
+        async function processAttendancePunch(employeeName) {
+            scanCooldown = true; 
+            document.getElementById('scanner-fx').classList.add('hidden'); 
+            
+            try {
+                const todayStr = new Date().toLocaleDateString();
+                const userLogs = await db.logs.where('name').equals(employeeName).toArray();
+                const todayLogs = userLogs.filter(log => new Date(log.timestamp).toLocaleDateString() === todayStr);
+                todayLogs.sort((a,b) => new Date(a.timestamp) - new Date(b.timestamp));
+                
+                let targetType = 'IN';
+                if (todayLogs.length > 0) targetType = (todayLogs[todayLogs.length - 1].type === 'IN') ? 'OUT' : 'IN';
+
+                const now = new Date();
+                await db.logs.add({ name: employeeName, timestamp: now.toISOString(), type: targetType });
+
+                displayAckCard(employeeName, targetType, now);
+            } catch (err) {
+                console.error("Database punch error", err);
+            }
+
+            // Exactly 6 seconds hard cooldown lock
+            setTimeout(() => {
+                document.getElementById('ack-notification').classList.add('hidden');
+                if(activeTab === 'terminal' && isAttendanceActive) document.getElementById('scanner-fx').classList.remove('hidden');
+                scanCooldown = false; 
+            }, 6000); 
+        }
+
+        function displayAckCard(name, type, timeObj) {
+            const card = document.getElementById('ack-notification');
+            const bgContainer = document.getElementById('ack-card');
+            
+            document.getElementById('ack-name').innerText = name;
+            document.getElementById('ack-time').innerText = timeObj.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+            
+            if (type === 'IN') {
+                document.getElementById('ack-msg').innerText = "Punch Accepted";
+                document.getElementById('ack-icon').innerText = "👋";
+                bgContainer.className = "bg-white rounded-[2rem] app-shadow p-6 flex items-center gap-5 border-l-[10px] border-green-500 ring-1 ring-slate-100";
+                document.getElementById('ack-msg').className = "text-[11px] font-black uppercase tracking-widest mb-1 text-green-500";
+            } else {
+                document.getElementById('ack-msg').innerText = "Punch Accepted";
+                document.getElementById('ack-icon').innerText = "🏠";
+                bgContainer.className = "bg-white rounded-[2rem] app-shadow p-6 flex items-center gap-5 border-l-[10px] border-orange-500 ring-1 ring-slate-100";
+                document.getElementById('ack-msg').className = "text-[11px] font-black uppercase tracking-widest mb-1 text-orange-500";
+            }
+            card.classList.remove('hidden');
+        }
+
+        const delay = ms => new Promise(res => setTimeout(res, ms));
+
+        function abortEnrollment(msg) {
+            isEnrolling = false;
+            document.getElementById('reg-progress').style.width = '0%';
+            document.getElementById('face-guide').className = "w-40 h-48 border-[3px] border-dashed border-white/80 rounded-[40%] transition-colors duration-300";
+            showRegStatus(msg, "error");
+            document.getElementById('reg-instruction').innerText = "Awaiting Name...";
+            
+            const btn = document.getElementById('btn-start-enroll');
+            btn.innerHTML = "📸 Start Mapping";
+            btn.disabled = false;
+        }
+
+        function showRegStatus(msg, type) {
+            const box = document.getElementById('reg-status-box');
+            box.classList.remove('hidden', 'bg-red-50', 'text-red-700', 'border-red-200', 'bg-green-50', 'text-green-700', 'border-green-200');
+            if (type === "error") {
+                box.classList.add('bg-red-50', 'text-red-700', 'border-red-200');
+                box.innerHTML = `⚠️ ${msg}`;
+            } else {
+                box.classList.add('bg-green-50', 'text-green-700', 'border-green-200');
+                box.innerHTML = `✅ ${msg}`;
+            }
+        }
+
+        async function startEnrollmentSequence() {
+            if(!isAIReady) return alert("AI Engine still loading.");
+            if(isEnrolling) return;
+
+            const nameInput = document.getElementById('reg-name');
+            const name = nameInput.value.trim();
+            const isUpdateMode = !document.getElementById('reg-update-badge').classList.contains('hidden');
+
+            if (!name) return abortEnrollment("Enter legal name first.");
+
+            isEnrolling = true;
+            document.getElementById('reg-status-box').classList.add('hidden');
+            
+            const btn = document.getElementById('btn-start-enroll');
+            btn.innerHTML = "🔄 Processing 3D Scan...";
+            btn.disabled = true;
+
+            if (!isUpdateMode) {
+                const existingUser = await db.users.get(name);
+                if (existingUser) return abortEnrollment("Name exists. Use Admin tab to update.");
+            }
+
+            const guideBox = document.getElementById('face-guide');
+            const instruction = document.getElementById('reg-instruction');
+            const progress = document.getElementById('reg-progress');
+            let capturedDescriptors = [];
+            
+            const captureSteps = [
+                { msg: "Look straight into camera", color: "border-blue-400", p: "33%" },
+                { msg: "Turn slightly Left (20°)", color: "border-purple-400", p: "66%" },
+                { msg: "Turn slightly Right (20°)", color: "border-green-400", p: "100%" }
+            ];
+
+            try {
+                for (let i = 0; i < captureSteps.length; i++) {
+                    if (!isEnrolling) return;
+                    const step = captureSteps[i];
+                    instruction.innerText = step.msg;
+                    guideBox.className = `w-40 h-48 border-[4px] border-dashed rounded-[40%] transition-colors duration-300 ${step.color}`;
+                    
+                    await delay(800); 
+                    
+                    let detection = null;
+                    let attempts = 0;
+
+                    while (!detection && attempts < 15 && isEnrolling) {
+                        detection = await faceapi.detectSingleFace(regVideo, tinyFaceOptions).withFaceLandmarks().withFaceDescriptor();
+                        if (!detection) {
+                            attempts++;
+                            instruction.innerText = `Searching... (Keep looking ${i===0?'straight':i===1?'left':'right'})`;
+                            await delay(200); 
+                        }
+                    }
+                    
+                    if (!detection) return abortEnrollment("Face lost! Please retry.");
+
+                    if (i === 0 && faceMatcher) {
+                        const match = faceMatcher.findBestMatch(detection.descriptor);
+                        if (match.label !== 'unknown' && match.label !== name) {
+                            return abortEnrollment(`Error: Face matches "${match.label}".`);
+                        }
+                    }
+
+                    instruction.innerText = "Locked!";
+                    capturedDescriptors.push(Array.from(detection.descriptor));
+                    progress.style.width = step.p;
+                    
+                    await delay(400); 
+                }
+
+                await db.users.put({ name: name, descriptors: capturedDescriptors });
+                await rebuildFaceMatcher(); 
+                
+                isEnrolling = false;
+                showRegStatus("Blueprint Secured!", "success");
+                instruction.innerText = "Encryption Complete";
+                
+                setTimeout(() => {
+                    nameInput.value = '';
+                    nameInput.disabled = false;
+                    document.getElementById('reg-update-badge').classList.add('hidden');
+                    progress.style.width = '0%';
+                    guideBox.className = "w-40 h-48 border-[3px] border-dashed border-white/80 rounded-[40%] transition-colors duration-300";
+                    instruction.innerText = "Awaiting Name...";
+                    btn.innerHTML = "📸 Start Mapping";
+                    btn.disabled = false;
+                }, 2500);
+
+            } catch (err) {
+                console.error(err);
+                abortEnrollment("Camera error during mapping.");
+            }
+        }
+
+        async function refreshEmployeeView() {
+            const users = await db.users.toArray();
+            const container = document.getElementById('admin-view-emp');
+            document.getElementById('emp-count').innerText = `${users.length}`;
+            
+            if(users.length === 0) {
+                container.innerHTML = '<div class="p-8 text-center text-slate-400 font-bold bg-white rounded-3xl border border-slate-100 app-shadow">No employees registered.</div>';
+                return;
+            }
+
+            container.innerHTML = users.map(u => `
+                <div class="bg-white p-5 rounded-3xl app-shadow flex justify-between items-center border border-slate-100">
+                    <div class="flex items-center gap-3.5">
+                        <div class="h-12 w-12 bg-indigo-50 rounded-[14px] flex items-center justify-center text-indigo-600 text-xl border border-indigo-100">👤</div>
+                        <p class="font-black text-slate-800 text-lg">${u.name}</p>
+                    </div>
+                    <div class="flex gap-2">
+                        <button onclick="triggerFaceUpdate('${u.name}')" class="bg-blue-50 hover:bg-blue-100 text-blue-600 px-4 py-2.5 rounded-xl text-xs font-black active:scale-95 transition-colors">Scan</button>
+                        <button onclick="deleteEmployee('${u.name}')" class="bg-red-50 hover:bg-red-100 text-red-600 px-4 py-2.5 rounded-xl text-xs font-black active:scale-95 transition-colors">Del</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function triggerFaceUpdate(oldName) {
+            switchTab('register');
+            const nameInput = document.getElementById('reg-name');
+            nameInput.value = oldName;
+            nameInput.disabled = true;
+            document.getElementById('reg-update-badge').classList.remove('hidden');
+            document.getElementById('reg-status-box').classList.add('hidden');
+        }
+
+        async function deleteEmployee(name) {
+            if(!confirm(`Delete ${name}'s face data permanently?`)) return;
+            await db.users.delete(name);
+            await rebuildFaceMatcher();
+            refreshEmployeeView();
+        }
+
+        async function refreshLogsView() {
+            const allLogs = await db.logs.toArray();
+            allLogs.sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp)); 
+            const container = document.getElementById('admin-view-logs');
+            
+            if(allLogs.length === 0) {
+                container.innerHTML = '<div class="p-8 text-center text-slate-400 font-bold bg-white rounded-3xl border border-slate-100 app-shadow">System empty.</div>';
+                return;
+            }
+
+            const todayStr = new Date().toLocaleDateString();
+            const todayLogs = allLogs.filter(log => new Date(log.timestamp).toLocaleDateString() === todayStr);
+
+            if(todayLogs.length === 0) {
+                container.innerHTML = '<div class="p-8 text-center text-slate-400 font-bold bg-white rounded-3xl border border-slate-100 app-shadow">No attendance logged today.</div>';
+                return;
+            }
+
+            container.innerHTML = todayLogs.map(log => {
+                const isIN = log.type === 'IN';
+                const typeColor = isIN ? "text-green-600 bg-green-50" : "text-orange-600 bg-orange-50";
+                const borderClass = isIN ? "in" : "out";
+                const time = new Date(log.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                
+                return `
+                    <div class="bg-white p-5 rounded-3xl app-shadow flex justify-between items-center log-card ${borderClass} border-y border-r border-slate-100">
+                        <div class="flex flex-col">
+                            <p class="font-black text-slate-800 text-[17px] leading-none mb-1.5">${log.name}</p>
+                            <div class="flex items-center gap-1.5">
+                                <span class="text-[10px] text-slate-400 font-bold">⌚</span>
+                                <p class="text-xs text-slate-500 font-bold">${time}</p>
+                            </div>
+                        </div>
+                        <div class="px-4 py-2 rounded-xl ${typeColor} text-[11px] font-black uppercase tracking-widest">${log.type}</div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        async function getConsolidatedData() {
+            const allLogs = await db.logs.toArray();
+            if(allLogs.length === 0) return null;
+            const tracking = {};
+            allLogs.forEach(log => {
+                const dateKey = new Date(log.timestamp).toLocaleDateString();
+                if (!tracking[log.name]) tracking[log.name] = {};
+                if (!tracking[log.name][dateKey]) tracking[log.name][dateKey] = [];
+                tracking[log.name][dateKey].push(log);
+            });
+            return tracking;
+        }
+
+        async function exportToCSV() {
+            const tracking = await getConsolidatedData();
+            if(!tracking) return alert("No data to export.");
+
+            let csvContent = "Employee Name,Date,First IN,Last OUT,Hours\n";
+            for (const name in tracking) {
+                for (const date in tracking[name]) {
+                    const punches = tracking[name][date];
+                    const ins = punches.filter(p => p.type === 'IN').map(p => new Date(p.timestamp));
+                    const outs = punches.filter(p => p.type === 'OUT').map(p => new Date(p.timestamp));
+                    const firstIn = ins.length ? new Date(Math.min(...ins)) : null;
+                    const lastOut = outs.length ? new Date(Math.max(...outs)) : null;
+                    const inStr = firstIn ? firstIn.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'No IN';
+                    const outStr = lastOut ? lastOut.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'No OUT';
+                    let hours = "0.0";
+                    if (firstIn && lastOut && lastOut > firstIn) hours = ((lastOut - firstIn) / 3600000).toFixed(1);
+                    csvContent += `${name.replace(/,/g, '')},${date},${inStr},${outStr},${hours}\n`;
+                }
+            }
+
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.setAttribute("href", url);
+            link.setAttribute("download", `Attendance_Log_${new Date().toLocaleDateString().replace(/\//g, '-')}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        async function exportToWhatsApp() {
+            const tracking = await getConsolidatedData();
+            const phone = document.getElementById('manager-phone').value.trim();
+            if(!tracking) return alert("No data.");
+
+            let report = `📝 *DAILY KIOSK REPORT*\n\n`;
+            let foundData = false;
+            for (const name in tracking) {
+                const today = new Date().toLocaleDateString();
+                if(tracking[name][today]) {
+                    foundData = true;
+                    const punches = tracking[name][today];
+                    const ins = punches.filter(p => p.type === 'IN').map(p => new Date(p.timestamp));
+                    const outs = punches.filter(p => p.type === 'OUT').map(p => new Date(p.timestamp));
+                    const firstIn = ins.length ? new Date(Math.min(...ins)).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'No IN';
+                    const lastOut = outs.length ? new Date(Math.max(...outs)).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'Active';
+                    report += `👤 *${name}*\n🔹 IN: ${firstIn}\n🔸 OUT: ${lastOut}\n\n`;
+                }
+            }
+
+            if(!foundData) return alert("No punches today.");
+            window.location.href = `whatsapp://send?phone=${phone}&text=${encodeURIComponent(report)}`;
+        }
+
+        bootSystem();
+    </script>
+</body>
+</html>
