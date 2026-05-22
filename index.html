@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#f8fafc">
+    <title>AI Kiosk Pro</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/dexie@3.2.4/dist/dexie.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.min.js"></script>
+
+    <style>
+        body { overscroll-behavior-y: none; -webkit-tap-highlight-color: transparent; }
+        .hide-scrollbar::-webkit-scrollbar { display: none; }
+        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        .app-shadow { box-shadow: 0 8px 30px rgba(0,0,0,0.06); }
+        .glass-nav { background: rgba(255, 255, 255, 0.90); backdrop-filter: blur(16px); border-top: 1px solid rgba(226, 232, 240, 0.8); }
+        
+        .mirror-feed { transform: scaleX(-1); object-fit: cover; }
+        
+        .scanner-bar {
+            position: absolute; top: 0; left: 0; right: 0; height: 12px;
+            background: linear-gradient(to bottom, rgba(59,130,246,0) 0%, rgba(59,130,246,0.9) 100%);
+            box-shadow: 0px 4px 20px rgba(59,130,246,0.7);
+            animation: scan 2s ease-in-out infinite alternate; z-index: 10;
+        }
+        @keyframes scan { 0% { transform: translateY(0); } 100% { transform: translateY(100%); } }
+        
+        .slide-up { animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+        @keyframes slideUp { 0% { transform: translateY(100px); opacity: 0; } 100% { transform: translateY(0); opacity: 1; } }
+        
+        /* Mobile Card Styles for Admin */
+        .log-card { border-left: 4px solid #3b82f6; }
+        .log-card.in { border-left-color: #10b981; }
+        .log-card.out { border-left-color: #f97316; }
+    </style>
+</head>
+<body class="bg-slate-50 min-h-screen text-slate-800 font-sans flex flex-col pb-24 pt-safe">
+
+    <!-- App Header -->
+    <header class="bg-white/80 backdrop-blur-md sticky top-0 z-40 px-5 py-4 flex justify-between items-center app-shadow rounded-b-3xl mb-4">
+        <div class="flex items-center gap-3">
+            <div class="h-10 w-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl flex items-center justify-center text-white font-black text-xl shadow-lg shadow-blue-500/30">AI</div>
+            <div>
+                <h1 class="text-lg font-black tracking-tight leading-tight">Smart Kiosk</h1>
+                <p id="ai-status" class="text-[10px] font-bold text-amber-500 uppercase tracking-widest">Loading Engine...</p>
+            </div>
+        </div>
+        <div id="pulse-indicator" class="h-3 w-3 bg-slate-300 rounded-full"></div>
+    </header>
+
+    <main class="flex-1 w-full max-w-lg mx-auto px-4 relative">
+
+        <!-- TAB 1: LIVE TERMINAL -->
+        <div id="tab-terminal" class="tab-content w-full flex flex-col items-center">
+            
+            <div class="w-full bg-white p-2 rounded-[2rem] app-shadow relative overflow-hidden">
+                
+                <!-- Main Camera Frame -->
+                <div class="relative bg-slate-900 w-full aspect-[3/4] rounded-[1.5rem] flex items-center justify-center overflow-hidden border border-slate-100 shadow-inner">
+                    <video id="live-video" class="mirror-feed absolute inset-0 w-full h-full" autoplay muted playsinline webkit-playsinline></video>
+                    
+                    <!-- Scanner Animation -->
+                    <div id="scanner-fx" class="hidden absolute inset-0 pointer-events-none">
+                        <div class="scanner-bar"></div>
+                        <div class="absolute inset-4 border-[3px] border-blue-500/20 rounded-2xl"></div>
+                        
+                        <!-- Face Target Box -->
+                        <div class="absolute inset-0 flex items-center justify-center">
+                            <div class="w-48 h-56 border border-white/20 rounded-3xl">
+                                <div class="absolute top-0 left-0 w-6 h-6 border-t-4 border-l-4 border-blue-400 rounded-tl-3xl"></div>
+                                <div class="absolute top-0 right-0 w-6 h-6 border-t-4 border-r-4 border-blue-400 rounded-tr-3xl"></div>
+                                <div class="absolute bottom-0 left-0 w-6 h-6 border-b-4 border-l-4 border-blue-400 rounded-bl-3xl"></div>
+                                <div class="absolute bottom-0 right-0 w-6 h-6 border-b-4 border-r-4 border-blue-400 rounded-br-3xl"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Overlays -->
+                    <div id="paused-overlay" class="absolute inset-0 bg-black/80 hidden flex flex-col items-center justify-center text-white z-20 backdrop-blur-md">
+                        <span class="text-5xl mb-3">⏸</span>
+                        <h3 class="text-xl font-bold tracking-wide">Terminal Paused</h3>
+                    </div>
+
+                    <div id="warmup-overlay" class="absolute inset-0 bg-indigo-900/90 hidden flex flex-col items-center justify-center text-white z-20 backdrop-blur-lg">
+                        <span class="text-5xl mb-4 animate-bounce">🛡️</span>
+                        <h3 class="text-lg font-bold">Activating Scanner</h3>
+                        <p class="text-indigo-200 font-mono text-3xl font-black mt-2" id="warmup-timer">5</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Toast Notification -->
+            <div id="ack-notification" class="fixed top-24 left-4 right-4 hidden z-50 slide-up max-w-md mx-auto">
+                <div id="ack-card" class="bg-white rounded-2xl app-shadow p-5 flex items-center gap-4">
+                    <div id="ack-icon" class="text-4xl">✅</div>
+                    <div class="flex-1">
+                        <p id="ack-msg" class="text-[10px] font-black uppercase tracking-widest mb-1 text-slate-400"></p>
+                        <h3 id="ack-name" class="text-xl font-black text-slate-800 leading-tight"></h3>
+                        <p id="ack-time" class="text-xs text-slate-500 font-medium mt-1"></p>
+                    </div>
+                </div>
+            </div>
+            
+            <p class="text-center text-xs text-slate-400 font-bold mt-6">Powered by Offline AI Security</p>
+        </div>
+
+        <!-- TAB 2: ENROLLMENT -->
+        <div id="tab-register" class="tab-content hidden w-full">
+            <div class="bg-white p-6 rounded-3xl app-shadow">
+                <h2 class="text-2xl font-black text-slate-800 tracking-tight">Add Employee</h2>
+                <p class="text-sm text-slate-500 font-medium mt-1 mb-6">Create a secure 3D face blueprint.</p>
+                
+                <div class="relative rounded-[2rem] overflow-hidden bg-black aspect-square border-[6px] border-slate-50 mb-6 flex flex-col justify-end shadow-inner">
+                    <video id="reg-video" class="mirror-feed absolute inset-0 w-full h-full z-0" autoplay muted playsinline webkit-playsinline></video>
+                    
+                    <div class="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
+                        <div id="face-guide" class="w-40 h-48 border-[3px] border-dashed border-white/80 rounded-[40%] transition-colors duration-300"></div>
+                    </div>
+
+                    <div class="relative z-20 bg-gradient-to-t from-black/90 to-transparent p-5 w-full text-center">
+                        <h3 id="reg-instruction" class="text-white font-bold text-sm tracking-wide mb-3 shadow-black drop-shadow-md">Awaiting Name...</h3>
+                        <div class="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
+                            <div id="reg-progress" class="bg-blue-500 h-full rounded-full w-0 transition-all duration-500 shadow-[0_0_10px_#3b82f6]"></div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="flex flex-col gap-4">
+                    <div>
+                        <input type="text" id="reg-name" placeholder="Full Legal Name" class="w-full px-5 py-4 rounded-2xl bg-slate-50 border-0 ring-1 ring-slate-200 focus:ring-2 focus:ring-blue-500 outline-none text-lg font-bold placeholder:font-medium transition-all">
+                        <p id="reg-update-badge" class="hidden mt-2 text-xs font-black text-orange-600 bg-orange-100 py-1.5 px-3 rounded-lg inline-block uppercase tracking-wider">Update Mode</p>
+                    </div>
+                    
+                    <button id="btn-start-enroll" onclick="startEnrollmentSequence()" class="w-full bg-slate-900 active:bg-black text-white font-black py-4 rounded-2xl shadow-xl transition-transform active:scale-95 flex justify-center items-center gap-2 text-lg tracking-wide">
+                        📸 Start Mapping
+                    </button>
+                    
+                    <div id="reg-status-box" class="hidden p-3 rounded-xl text-sm font-bold text-center border"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 3: ADMIN HUB -->
+        <div id="tab-admin" class="tab-content hidden w-full space-y-5">
+            
+            <!-- Admin Controls -->
+            <div class="bg-white p-5 rounded-3xl app-shadow grid grid-cols-2 gap-3">
+                <button id="toggle-scan-btn" onclick="toggleAttendance()" class="col-span-2 bg-orange-500 text-white py-4 rounded-2xl font-black shadow-lg active:scale-95 flex justify-center gap-2 items-center tracking-wide">
+                    ⏸ PAUSE SCANNER
+                </button>
+                
+                <button onclick="exportToCSV()" class="bg-slate-100 text-slate-800 py-3.5 rounded-2xl font-bold active:scale-95 flex flex-col items-center justify-center gap-1 border border-slate-200">
+                    <span class="text-xl">📊</span>
+                    <span class="text-xs uppercase tracking-wider">Excel</span>
+                </button>
+                
+                <button onclick="exportToWhatsApp()" class="bg-[#25D366]/10 text-[#25D366] py-3.5 rounded-2xl font-bold active:scale-95 flex flex-col items-center justify-center gap-1 border border-[#25D366]/20">
+                    <span class="text-xl">💬</span>
+                    <span class="text-xs uppercase tracking-wider">WhatsApp</span>
+                </button>
+
+                <div class="col-span-2 mt-2">
+                    <input type="tel" id="manager-phone" placeholder="WhatsApp Number (e.g. 91...)" class="w-full px-5 py-4 rounded-2xl bg-slate-50 border-0 ring-1 ring-slate-200 focus:ring-2 focus:ring-[#25D366] outline-none text-sm font-bold text-center">
+                </div>
+            </div>
+
+            <!-- Data Lists -->
+            <div class="bg-white rounded-3xl app-shadow overflow-hidden flex flex-col">
+                <!-- Tab Headers -->
+                <div class="flex border-b border-slate-100">
+                    <button onclick="switchAdminTab('logs')" id="adm-tab-logs" class="flex-1 py-4 text-sm font-black text-blue-600 border-b-2 border-blue-600">TODAY'S LOGS</button>
+                    <button onclick="switchAdminTab('emp')" id="adm-tab-emp" class="flex-1 py-4 text-sm font-bold text-slate-400 border-b-2 border-transparent">DATABASE (<span id="emp-count">0</span>)</button>
+                </div>
+                
+                <!-- Logs View -->
+                <div id="admin-view-logs" class="p-4 max-h-[400px] overflow-y-auto space-y-3 bg-slate-50">
+                    <!-- JS Populated -->
+                </div>
+
+                <!-- Employees View -->
+                <div id="admin-view-emp" class="hidden p-4 max-h-[400px] overflow-y-auto space-y-3 bg-slate-50">
+                    <!-- JS Populated -->
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Bottom App Navigation -->
+    <nav class="fixed bottom-0 left-0 right-0 glass-nav pb-safe z-50">
+        <div class="flex justify-around items-center px-2 py-3 max-w-lg mx-auto">
+            <button onclick="switchTab('terminal')" id="nav-terminal" class="flex flex-col items-center w-20 gap-1 text-blue-600 transition-colors">
+                <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 20 20"><path d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z" clip-rule="evenodd" fill-rule="evenodd"></path></svg>
+                <span class="text-[10px] font-black uppercase tracking-wider">Scanner</span>
+            </button>
+            <button onclick="switchTab('register')" id="nav-register" class="flex flex-col items-center w-20 gap-1 text-slate-400 hover:text-slate-600 transition-colors">
+                <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd"></path></svg>
+                <span class="text-[10px] font-bold uppercase tracking-wider">Add</span>
+            </button>
+            <button onclick="switchTab('admin')" id="nav-admin" class="flex flex-col items-center w-20 gap-1 text-slate-400 hover:text-slate-600 transition-colors">
+                <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd"></path></svg>
+                <span class="text-[10px] font-bold uppercase tracking-wider">Admin</span>
+            </button>
+        </div>
+    </nav>
+
+    <!-- LOGIC -->
+    <script>
+        const db = new Dexie("SmartKioskEnterpriseDB");
+        db.version(2).stores({ users: 'name', logs: '++id, name, timestamp, type' });
+
+        const MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.12/model/';
+        let activeTab = 'terminal'; 
+        let faceMatcher = null, isAIReady = false, scanCooldown = false;
+        let isAttendanceActive = true, warmupInterval = null, isEnrolling = false;
+        
+        const tinyFaceOptions = new faceapi.TinyFaceDetectorOptions({ inputSize: 160, scoreThreshold: 0.5 });
+
+        const liveVideo = document.getElementById('live-video');
+        const regVideo = document.getElementById('reg-video');
+        const statusText = document.getElementById('ai-status');
+        const pulse = document.getElementById('pulse-indicator');
+
+        function switchTab(tabId) {
+            if(isEnrolling) abortEnrollment("Cancelled by navigation.");
+            activeTab = tabId;
+            
+            // Hide all tabs
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+            document.getElementById(`tab-${tabId}`).classList.remove('hidden');
+            
+            // Reset Bottom Nav Colors
+            ['terminal', 'register', 'admin'].forEach(id => {
+                const btn = document.getElementById(`nav-${id}`);
+                btn.classList.remove('text-blue-600', 'font-black');
+                btn.classList.add('text-slate-400', 'font-bold');
+            });
+            const activeBtn = document.getElementById(`nav-${tabId}`);
+            activeBtn.classList.remove('text-slate-400', 'font-bold');
+            activeBtn.classList.add('text-blue-600', 'font-black');
+            
+            // Battery Saver: Suspend camera loops visually
+            if (tabId !== 'terminal') {
+                document.getElementById('scanner-fx').classList.add('hidden');
+            }
+
+            if (tabId === 'admin') { 
+                refreshLogsView(); 
+                refreshEmployeeView(); 
+            } else if (tabId === 'terminal' && isAIReady && isAttendanceActive) {
+                startWarmupTimer();
+            }
+        }
+
+        // Sub-tabs in Admin panel
+        function switchAdminTab(viewId) {
+            document.getElementById('admin-view-logs').classList.add('hidden');
+            document.getElementById('admin-view-emp').classList.add('hidden');
+            
+            document.getElementById(`admin-view-${viewId}`).classList.remove('hidden');
+            
+            document.getElementById('adm-tab-logs').className = "flex-1 py-4 text-sm font-bold text-slate-400 border-b-2 border-transparent transition-colors";
+            document.getElementById('adm-tab-emp').className = "flex-1 py-4 text-sm font-bold text-slate-400 border-b-2 border-transparent transition-colors";
+            
+            const active = document.getElementById(`adm-tab-${viewId}`);
+            active.className = "flex-1 py-4 text-sm font-black text-blue-600 border-b-2 border-blue-600 transition-colors";
+        }
+
+        function startWarmupTimer() {
+            scanCooldown = true; 
+            document.getElementById('scanner-fx').classList.add('hidden'); 
+            if(warmupInterval) clearInterval(warmupInterval);
+            
+            document.getElementById('warmup-overlay').classList.remove('hidden');
+            let timeLeft = 3; // Reduced to 3 seconds for better mobile UX
+            document.getElementById('warmup-timer').innerText = timeLeft;
+            
+            warmupInterval = setInterval(() => {
+                timeLeft--;
+                if (timeLeft > 0) document.getElementById('warmup-timer').innerText = timeLeft;
+                else {
+                    clearInterval(warmupInterval);
+                    document.getElementById('warmup-overlay').classList.add('hidden');
+                    if (activeTab === 'terminal' && isAttendanceActive) {
+                        scanCooldown = false;
+                        document.getElementById('scanner-fx').classList.remove('hidden');
+                    }
+                }
+            }, 1000);
+        }
+
+        function toggleAttendance() {
+            isAttendanceActive = !isAttendanceActive;
+            const btn = document.getElementById('toggle-scan-btn');
+            
+            if (isAttendanceActive) {
+                btn.innerHTML = "⏸ PAUSE SCANNER";
+                btn.className = "col-span-2 bg-orange-500 text-white py-4 rounded-2xl font-black shadow-lg active:scale-95 flex justify-center gap-2 items-center tracking-wide";
+                document.getElementById('paused-overlay').classList.add('hidden');
+                statusText.innerText = "Active";
+                statusText.className = "text-[10px] font-bold text-green-500 uppercase tracking-widest";
+                if(activeTab === 'terminal') startWarmupTimer();
+            } else {
+                btn.innerHTML = "▶ RESUME SCANNER";
+                btn.className = "col-span-2 bg-green-500 text-white py-4 rounded-2xl font-black shadow-lg active:scale-95 flex justify-center gap-2 items-center tracking-wide";
+                document.getElementById('paused-overlay').classList.remove('hidden');
+                document.getElementById('scanner-fx').classList.add('hidden');
+                document.getElementById('warmup-overlay').classList.add('hidden'); 
+                statusText.innerText = "Paused";
+                statusText.className = "text-[10px] font-bold text-orange-500 uppercase tracking-widest";
+                if(warmupInterval) clearInterval(warmupInterval);
+            }
+        }
+
+        async function bootSystem() {
+            try {
+                statusText.innerText = "Fetching AI...";
+                await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+                await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
+                await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
+                
+                statusText.innerText = "Starting Camera...";
+                
+                const constraints = { video: { facingMode: "user", width: { ideal: 320 }, height: { ideal: 240 } }, audio: false };
+                let stream;
+                try {
+                    stream = await navigator.mediaDevices.getUserMedia(constraints);
+                } catch (camErr) {
+                    stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                }
+                
+                liveVideo.srcObject = stream;
+                regVideo.srcObject = stream;
+                
+                liveVideo.onplay = async () => {
+                    statusText.innerText = "Active";
+                    statusText.className = "text-[10px] font-bold text-green-500 uppercase tracking-widest";
+                    pulse.classList.replace('bg-slate-300', 'bg-green-500');
+                    pulse.classList.add('animate-ping');
+                    
+                    isAIReady = true;
+                    await rebuildFaceMatcher();
+                    if(isAttendanceActive) startWarmupTimer();
+                    startTerminalLoop();
+                };
+            } catch (e) {
+                console.error(e);
+                statusText.innerText = "Camera Error";
+                statusText.className = "text-[10px] font-bold text-red-500 uppercase tracking-widest";
+                pulse.classList.replace('bg-slate-300', 'bg-red-500');
+            }
+        }
+
+        async function rebuildFaceMatcher() {
+            const allUsers = await db.users.toArray();
+            if (allUsers.length === 0) { faceMatcher = null; return; }
+            const labeledDescriptors = allUsers.map(user => {
+                const descList = user.descriptors ? user.descriptors : [user.descriptor];
+                return new faceapi.LabeledFaceDescriptors(user.name, descList.map(d => new Float32Array(d)));
+            });
+            faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.53);
+        }
+
+        async function startTerminalLoop() {
+            setInterval(async () => {
+                // Strict check: Only scan if completely ready and on terminal tab
+                if (activeTab !== 'terminal' || !isAIReady || scanCooldown || !faceMatcher || liveVideo.paused || !isAttendanceActive) return;
+                
+                const detection = await faceapi.detectSingleFace(liveVideo, tinyFaceOptions).withFaceLandmarks().withFaceDescriptor();
+                if (detection) {
+                    const match = faceMatcher.findBestMatch(detection.descriptor);
+                    if (match.label !== 'unknown') processAttendancePunch(match.label);
+                }
+            }, 800);
+        }
+
+        async function processAttendancePunch(employeeName) {
+            scanCooldown = true; 
+            document.getElementById('scanner-fx').classList.add('hidden'); 
+            
+            const todayStr = new Date().toLocaleDateString();
+            const userLogs = await db.logs.where('name').equals(employeeName).toArray();
+            const todayLogs = userLogs.filter(log => new Date(log.timestamp).toLocaleDateString() === todayStr);
+            todayLogs.sort((a,b) => new Date(a.timestamp) - new Date(b.timestamp));
+            
+            let targetType = 'IN';
+            if (todayLogs.length > 0) targetType = (todayLogs[todayLogs.length - 1].type === 'IN') ? 'OUT' : 'IN';
+
+            const now = new Date();
+            await db.logs.add({ name: employeeName, timestamp: now.toISOString(), type: targetType });
+
+            displayAckCard(employeeName, targetType, now);
+            setTimeout(() => {
+                document.getElementById('ack-notification').classList.add('hidden');
+                if(activeTab === 'terminal' && isAttendanceActive) document.getElementById('scanner-fx').classList.remove('hidden');
+                scanCooldown = false;
+            }, 6000); // 6s toast visibility
+        }
+
+        function displayAckCard(name, type, timeObj) {
+            const card = document.getElementById('ack-notification');
+            const bgContainer = document.getElementById('ack-card');
+            
+            document.getElementById('ack-name').innerText = name;
+            document.getElementById('ack-time').innerText = timeObj.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+            
+            if (type === 'IN') {
+                document.getElementById('ack-msg').innerText = "Checked In Successfully";
+                document.getElementById('ack-icon').innerText = "✅";
+                bgContainer.className = "bg-white rounded-[2rem] app-shadow p-5 flex items-center gap-4 border-l-[10px] border-green-500";
+                document.getElementById('ack-msg').className = "text-[10px] font-black uppercase tracking-widest mb-1 text-green-500";
+            } else {
+                document.getElementById('ack-msg').innerText = "Checked Out Successfully";
+                document.getElementById('ack-icon').innerText = "👋";
+                bgContainer.className = "bg-white rounded-[2rem] app-shadow p-5 flex items-center gap-4 border-l-[10px] border-orange-500";
+                document.getElementById('ack-msg').className = "text-[10px] font-black uppercase tracking-widest mb-1 text-orange-500";
+            }
+            card.classList.remove('hidden');
+        }
+
+        const delay = ms => new Promise(res => setTimeout(res, ms));
+
+        function abortEnrollment(msg) {
+            isEnrolling = false;
+            document.getElementById('reg-progress').style.width = '0%';
+            document.getElementById('face-guide').className = "w-40 h-48 border-[3px] border-dashed border-white/80 rounded-[40%] transition-colors duration-300";
+            showRegStatus(msg, "error");
+            document.getElementById('reg-instruction').innerText = "Awaiting Name...";
+            
+            const btn = document.getElementById('btn-start-enroll');
+            btn.innerHTML = "📸 Start Mapping";
+            btn.disabled = false;
+        }
+
+        function showRegStatus(msg, type) {
+            const box = document.getElementById('reg-status-box');
+            box.classList.remove('hidden', 'bg-red-50', 'text-red-700', 'border-red-200', 'bg-green-50', 'text-green-700', 'border-green-200');
+            if (type === "error") {
+                box.classList.add('bg-red-50', 'text-red-700', 'border-red-200');
+                box.innerHTML = `⚠️ ${msg}`;
+            } else {
+                box.classList.add('bg-green-50', 'text-green-700', 'border-green-200');
+                box.innerHTML = `✅ ${msg}`;
+            }
+        }
+
+        async function startEnrollmentSequence() {
+            if(!isAIReady) return alert("AI Engine still loading.");
+            if(isEnrolling) return;
+
+            const nameInput = document.getElementById('reg-name');
+            const name = nameInput.value.trim();
+            const isUpdateMode = !document.getElementById('reg-update-badge').classList.contains('hidden');
+
+            if (!name) return abortEnrollment("Enter legal name first.");
+
+            isEnrolling = true;
+            document.getElementById('reg-status-box').classList.add('hidden');
+            
+            const btn = document.getElementById('btn-start-enroll');
+            btn.innerHTML = "🔄 Scanning...";
+            btn.disabled = true;
+
+            if (!isUpdateMode) {
+                const existingUser = await db.users.get(name);
+                if (existingUser) return abortEnrollment("Name exists. Use Admin tab to update.");
+            }
+
+            const guideBox = document.getElementById('face-guide');
+            const instruction = document.getElementById('reg-instruction');
+            const progress = document.getElementById('reg-progress');
+            let capturedDescriptors = [];
+            
+            const captureSteps = [
+                { msg: "Look straight into camera", color: "border-blue-400", p: "33%" },
+                { msg: "Turn slightly Left (20°)", color: "border-purple-400", p: "66%" },
+                { msg: "Turn slightly Right (20°)", color: "border-green-400", p: "100%" }
+            ];
+
+            try {
+                for (let i = 0; i < captureSteps.length; i++) {
+                    if (!isEnrolling) return;
+                    const step = captureSteps[i];
+                    instruction.innerText = step.msg;
+                    guideBox.className = `w-40 h-48 border-[4px] border-dashed rounded-[40%] transition-colors duration-300 ${step.color}`;
+                    
+                    await delay(800); 
+                    
+                    let detection = null;
+                    let attempts = 0;
+
+                    while (!detection && attempts < 15 && isEnrolling) {
+                        detection = await faceapi.detectSingleFace(regVideo, tinyFaceOptions).withFaceLandmarks().withFaceDescriptor();
+                        if (!detection) {
+                            attempts++;
+                            instruction.innerText = `Searching... (Keep looking ${i===0?'straight':i===1?'left':'right'})`;
+                            await delay(200); 
+                        }
+                    }
+                    
+                    if (!detection) return abortEnrollment("Face lost! Please retry.");
+
+                    if (i === 0 && faceMatcher) {
+                        const match = faceMatcher.findBestMatch(detection.descriptor);
+                        if (match.label !== 'unknown' && match.label !== name) {
+                            return abortEnrollment(`Error: Face matches "${match.label}".`);
+                        }
+                    }
+
+                    instruction.innerText = "Locked!";
+                    capturedDescriptors.push(Array.from(detection.descriptor));
+                    progress.style.width = step.p;
+                    
+                    await delay(400); 
+                }
+
+                await db.users.put({ name: name, descriptors: capturedDescriptors });
+                await rebuildFaceMatcher(); 
+                
+                isEnrolling = false;
+                showRegStatus("Face Blueprint Secured!", "success");
+                instruction.innerText = "Encryption Complete";
+                
+                setTimeout(() => {
+                    nameInput.value = '';
+                    nameInput.disabled = false;
+                    document.getElementById('reg-update-badge').classList.add('hidden');
+                    progress.style.width = '0%';
+                    guideBox.className = "w-40 h-48 border-[3px] border-dashed border-white/80 rounded-[40%] transition-colors duration-300";
+                    instruction.innerText = "Awaiting Name...";
+                    btn.innerHTML = "📸 Start Mapping";
+                    btn.disabled = false;
+                }, 2500);
+
+            } catch (err) {
+                console.error(err);
+                abortEnrollment("Camera error during mapping.");
+            }
+        }
+
+        // --- NEW MOBILE CARD UI FOR ADMIN DATA ---
+        
+        async function refreshEmployeeView() {
+            const users = await db.users.toArray();
+            const container = document.getElementById('admin-view-emp');
+            document.getElementById('emp-count').innerText = `${users.length}`;
+            
+            if(users.length === 0) {
+                container.innerHTML = '<div class="p-6 text-center text-slate-400 font-bold bg-white rounded-2xl border border-slate-100">No employees registered.</div>';
+                return;
+            }
+
+            container.innerHTML = users.map(u => `
+                <div class="bg-white p-4 rounded-2xl app-shadow flex justify-between items-center border border-slate-100">
+                    <div class="flex items-center gap-3">
+                        <div class="h-10 w-10 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 text-lg">👤</div>
+                        <p class="font-black text-slate-700">${u.name}</p>
+                    </div>
+                    <div class="flex gap-2">
+                        <button onclick="triggerFaceUpdate('${u.name}')" class="bg-indigo-50 text-indigo-600 px-3 py-2 rounded-xl text-xs font-black active:scale-95">Update</button>
+                        <button onclick="deleteEmployee('${u.name}')" class="bg-red-50 text-red-600 px-3 py-2 rounded-xl text-xs font-black active:scale-95">Delete</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function triggerFaceUpdate(oldName) {
+            switchTab('register');
+            const nameInput = document.getElementById('reg-name');
+            nameInput.value = oldName;
+            nameInput.disabled = true;
+            document.getElementById('reg-update-badge').classList.remove('hidden');
+            document.getElementById('reg-status-box').classList.add('hidden');
+        }
+
+        async function deleteEmployee(name) {
+            if(!confirm(`Delete ${name}'s face data permanently?`)) return;
+            await db.users.delete(name);
+            await rebuildFaceMatcher();
+            refreshEmployeeView();
+        }
+
+        async function refreshLogsView() {
+            const allLogs = await db.logs.toArray();
+            allLogs.sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp)); 
+            const container = document.getElementById('admin-view-logs');
+            
+            if(allLogs.length === 0) {
+                container.innerHTML = '<div class="p-6 text-center text-slate-400 font-bold bg-white rounded-2xl border border-slate-100">No logs today.</div>';
+                return;
+            }
+
+            const todayStr = new Date().toLocaleDateString();
+            const todayLogs = allLogs.filter(log => new Date(log.timestamp).toLocaleDateString() === todayStr);
+
+            if(todayLogs.length === 0) {
+                container.innerHTML = '<div class="p-6 text-center text-slate-400 font-bold bg-white rounded-2xl border border-slate-100">No attendance logged today.</div>';
+                return;
+            }
+
+            container.innerHTML = todayLogs.map(log => {
+                const isIN = log.type === 'IN';
+                const typeColor = isIN ? "text-green-600 bg-green-100" : "text-orange-600 bg-orange-100";
+                const borderClass = isIN ? "in" : "out";
+                const time = new Date(log.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                
+                return `
+                    <div class="bg-white p-4 rounded-2xl app-shadow flex justify-between items-center log-card ${borderClass}">
+                        <div>
+                            <p class="font-black text-slate-800 text-lg leading-none mb-1">${log.name}</p>
+                            <p class="text-xs text-slate-400 font-bold">${time}</p>
+                        </div>
+                        <div class="px-3 py-1.5 rounded-lg ${typeColor} text-[10px] font-black uppercase tracking-widest">${log.type}</div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        async function getConsolidatedData() {
+            const allLogs = await db.logs.toArray();
+            if(allLogs.length === 0) return null;
+            const tracking = {};
+            allLogs.forEach(log => {
+                const dateKey = new Date(log.timestamp).toLocaleDateString();
+                if (!tracking[log.name]) tracking[log.name] = {};
+                if (!tracking[log.name][dateKey]) tracking[log.name][dateKey] = [];
+                tracking[log.name][dateKey].push(log);
+            });
+            return tracking;
+        }
+
+        async function exportToCSV() {
+            const tracking = await getConsolidatedData();
+            if(!tracking) return alert("No data to export.");
+
+            let csvContent = "Employee Name,Date,First IN,Last OUT,Hours\n";
+            for (const name in tracking) {
+                for (const date in tracking[name]) {
+                    const punches = tracking[name][date];
+                    const ins = punches.filter(p => p.type === 'IN').map(p => new Date(p.timestamp));
+                    const outs = punches.filter(p => p.type === 'OUT').map(p => new Date(p.timestamp));
+                    const firstIn = ins.length ? new Date(Math.min(...ins)) : null;
+                    const lastOut = outs.length ? new Date(Math.max(...outs)) : null;
+                    const inStr = firstIn ? firstIn.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'No IN';
+                    const outStr = lastOut ? lastOut.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'No OUT';
+                    let hours = "0.0";
+                    if (firstIn && lastOut && lastOut > firstIn) hours = ((lastOut - firstIn) / 3600000).toFixed(1);
+                    csvContent += `${name.replace(/,/g, '')},${date},${inStr},${outStr},${hours}\n`;
+                }
+            }
+
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.setAttribute("href", url);
+            link.setAttribute("download", `Attendance_${new Date().toLocaleDateString().replace(/\//g, '-')}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        async function exportToWhatsApp() {
+            const tracking = await getConsolidatedData();
+            const phone = document.getElementById('manager-phone').value.trim();
+            if(!tracking) return alert("No data.");
+
+            let report = `📝 *TODAY'S ATTENDANCE*\n\n`;
+            let foundData = false;
+            for (const name in tracking) {
+                const today = new Date().toLocaleDateString();
+                if(tracking[name][today]) {
+                    foundData = true;
+                    const punches = tracking[name][today];
+                    const ins = punches.filter(p => p.type === 'IN').map(p => new Date(p.timestamp));
+                    const outs = punches.filter(p => p.type === 'OUT').map(p => new Date(p.timestamp));
+                    const firstIn = ins.length ? new Date(Math.min(...ins)).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'No IN';
+                    const lastOut = outs.length ? new Date(Math.max(...outs)).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'Working';
+                    report += `👤 *${name}*\n🔹 IN: ${firstIn}\n🔸 OUT: ${lastOut}\n\n`;
+                }
+            }
+
+            if(!foundData) return alert("No attendance logged today.");
+            window.location.href = `whatsapp://send?phone=${phone}&text=${encodeURIComponent(report)}`;
+        }
+
+        bootSystem();
+    </script>
+</body>
+</html>
